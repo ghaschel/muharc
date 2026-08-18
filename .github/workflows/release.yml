@@ -67,8 +67,9 @@ jobs:
           task_tap=$(mktemp -d)
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/ghaschel/homebrew-tap.git" "$task_tap"
           sed -e "s/{{VERSION}}/$task_version/g" -e "s/{{SHA256}}/$task_sha/g" templates/muharc.rb.tmpl > "$task_tap/Formula/muharc.rb"
-          brew audit --strict "$task_tap/Formula/muharc.rb"
-          brew install "$task_tap/Formula/muharc.rb"
+          brew tap ghaschel/tap "$task_tap"
+          brew audit --strict ghaschel/tap/muharc
+          HOMEBREW_NO_INSTALL_FROM_API=1 brew install ghaschel/tap/muharc
           uharc --version
           git -C "$task_tap" add Formula/muharc.rb
           git -C "$task_tap" commit -m "muharc $task_version"

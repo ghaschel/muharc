@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- Audit and install the generated formula through its temporary Homebrew tap,
+  using Homebrew's supported named-formula interface.
+
 ## 0.1.3
 
 - Normalize the archive smoke test runtime path before changing its working
