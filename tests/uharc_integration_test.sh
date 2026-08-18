@@ -3,7 +3,7 @@
 set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-runtime_dir=$project_root/build/runtime
+runtime_dir=${MUHARC_RUNTIME_DIR:-$project_root/build/runtime}
 wibo=$runtime_dir/wibo
 uharc_exe=$runtime_dir/uharc.exe
 stage=$(mktemp -d "${TMPDIR:-/tmp}/muharc-uharc-test.XXXXXX")
