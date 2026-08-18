@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Run Wibo runtime and Homebrew smoke tests on Apple Silicon under Rosetta 2;
+  current native Intel macOS runners crash before the guest can start.
+
 ## 0.1.0
 
 - Initial macOS Homebrew wrapper for UHARC, with a bundled x86_64 Wibo runtime.
