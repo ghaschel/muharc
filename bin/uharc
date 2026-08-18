@@ -2,7 +2,22 @@
 
 set -eu
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+script_path=$0
+case $script_path in
+  */*) ;;
+  *) script_path=$(command -v -- "$script_path") ;;
+esac
+
+while [ -L "$script_path" ]; do
+  script_parent=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd -P)
+  script_link=$(readlink "$script_path")
+  case $script_link in
+    /*) script_path=$script_link ;;
+    *) script_path=$script_parent/$script_link ;;
+  esac
+done
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd -P)
 runtime_dir=$(CDPATH= cd -- "$script_dir/../libexec/muharc" && pwd -P)
 wibo=$runtime_dir/wibo
 uharc_exe=$runtime_dir/uharc.exe

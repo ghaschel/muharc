@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+
+- Resolve the Homebrew `bin/uharc` symlink before locating the bundled
+  runtime in the Cellar, and cover the real global-bin-to-Cellar layout.
+
 ## 0.1.5
 
 - Commit the generated formula in the temporary tap checkout before auditing,

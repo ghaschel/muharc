@@ -31,8 +31,18 @@ printf '%s\n' "$@" > "$MUHARC_TEST_LOG"
 EOF
 chmod +x "$stage/bin/uharc" "$stage/libexec/muharc/wibo"
 
+# Homebrew exposes a Cellar script through a symlink in a separate global bin
+# directory. The launcher must resolve that link before locating libexec.
+mkdir -p "$stage/cellar/muharc/bin" "$stage/cellar/muharc/libexec/muharc" "$stage/global/bin"
+cp "$project_root/bin/uharc" "$stage/cellar/muharc/bin/uharc"
+printf '%s\n' '0.0.0-test' > "$stage/cellar/muharc/libexec/muharc/VERSION"
+ln -s "$stage/cellar/muharc/bin/uharc" "$stage/global/bin/uharc"
+
 version=$($stage/bin/uharc --version)
 assert_equal 'uharc 0.0.0-test' "$version" '--version reports the bundled version'
+
+symlink_version=$($stage/global/bin/uharc --version)
+assert_equal 'uharc 0.0.0-test' "$symlink_version" '--version resolves a Homebrew-style bin symlink'
 
 help=$($stage/bin/uharc --help)
 case $help in
