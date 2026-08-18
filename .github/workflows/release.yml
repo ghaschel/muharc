@@ -40,10 +40,11 @@ jobs:
         with:
           name: muharc-x86_64
       - run: |
-          /usr/bin/arch -x86_64 /usr/bin/true
+          sudo softwareupdate --install-rosetta --agree-to-license
           task_archive=$(find . -name 'muharc-*-macos-x86_64.tar.gz' -print -quit)
           tar -xzf "$task_archive"
           task_dir=$(find . -type d -name 'muharc-*' -print -quit)
+          /usr/bin/arch -x86_64 "$task_dir/libexec/muharc/wibo" --version
           "$task_dir/bin/uharc" --version
           MUHARC_RUNTIME_DIR="$task_dir/libexec/muharc" ./tests/uharc_integration_test.sh
 

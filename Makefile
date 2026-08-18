@@ -14,6 +14,7 @@ runtime:
 
 test: runtime
 	./tests/wrapper_test.sh
+	./tests/release_workflow_test.sh
 	./tests/uharc_integration_test.sh
 
 dist: runtime
