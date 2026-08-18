@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Normalize the archive smoke test runtime path before changing its working
+  directory, so packaged releases are exercised correctly under Rosetta 2.
+
 ## 0.1.2
 
 - Install and verify Rosetta 2 on the Apple Silicon release runner before

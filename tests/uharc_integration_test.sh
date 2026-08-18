@@ -4,6 +4,10 @@ set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 runtime_dir=${MUHARC_RUNTIME_DIR:-$project_root/build/runtime}
+runtime_dir=$(CDPATH= cd -- "$runtime_dir" && pwd -P) || {
+  printf '%s\n' 'FAIL: runtime is missing; run make runtime first' >&2
+  exit 1
+}
 wibo=$runtime_dir/wibo
 uharc_exe=$runtime_dir/uharc.exe
 stage=$(mktemp -d "${TMPDIR:-/tmp}/muharc-uharc-test.XXXXXX")

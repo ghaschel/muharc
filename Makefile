@@ -16,6 +16,7 @@ test: runtime
 	./tests/wrapper_test.sh
 	./tests/release_workflow_test.sh
 	./tests/uharc_integration_test.sh
+	./tests/uharc_integration_path_test.sh
 
 dist: runtime
 	@test -n "$(VERSION)" || (printf '%s\n' 'VERSION is required' >&2; exit 64)
