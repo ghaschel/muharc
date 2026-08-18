@@ -174,9 +174,12 @@ jobs:
           HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source ghaschel/tap/muharc
           uharc --version | grep -Fx "uharc $VERSION"
           task_smoke=$(mktemp -d)
-          printf 'muharc formula smoke test\n' > "$task_smoke/input.txt"
-          uharc a "$task_smoke/smoke.uha" "$task_smoke/input.txt"
-          uharc t "$task_smoke/smoke.uha"
+          (
+            cd "$task_smoke"
+            printf 'muharc formula smoke test\n' > input.txt
+            uharc a smoke.uha input.txt
+            uharc t smoke.uha
+          )
       - name: Push tested tap update
         if: steps.formula.outputs.changed == 'true'
         shell: bash

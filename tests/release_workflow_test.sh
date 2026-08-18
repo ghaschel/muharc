@@ -56,6 +56,16 @@ grep -Fq 'HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source ghasch
   exit 1
 }
 
+grep -Fq 'cd "$task_smoke"' "$workflow" || {
+  printf '%s\n' 'FAIL: formula smoke paths must be relative for UHARC' >&2
+  exit 1
+}
+
+grep -Fq 'uharc a smoke.uha input.txt' "$workflow" || {
+  printf '%s\n' 'FAIL: formula smoke creation must pass relative UHARC paths' >&2
+  exit 1
+}
+
 commit_line=$(grep -n 'git -C tap commit -m "muharc $VERSION"' "$workflow" | head -n 1 | cut -d: -f1)
 tap_line=$(grep -n 'brew tap ghaschel/tap "$GITHUB_WORKSPACE/tap"' "$workflow" | head -n 1 | cut -d: -f1)
 [ -n "$commit_line" ] && [ -n "$tap_line" ] && [ "$commit_line" -lt "$tap_line" ] || {

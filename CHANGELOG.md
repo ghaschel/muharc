@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7
+
+- Run the Homebrew archive smoke test from its temporary directory so UHARC
+  receives relative archive and input paths instead of slash-prefixed switches.
+
 ## 0.1.6
 
 - Resolve the Homebrew `bin/uharc` symlink before locating the bundled
