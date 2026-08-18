@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+- Commit the generated formula in the temporary tap checkout before auditing,
+  so Homebrew audits and installs that exact unpublished formula.
+
 ## 0.1.4
 
 - Audit and install the generated formula through its temporary Homebrew tap,

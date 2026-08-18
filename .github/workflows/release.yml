@@ -1,14 +1,41 @@
-name: release
+name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: muharc-release-mutation
+  cancel-in-progress: false
 
 jobs:
-  build-and-release:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          task_version="${GITHUB_REF_NAME#v}"
+          test "$task_version" = "$(tr -d '\r\n' < VERSION)"
+          grep -Fq "## $task_version" CHANGELOG.md
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          printf 'version=%s\n' "$task_version" >> "$GITHUB_OUTPUT"
+
+  package-archive:
+    name: Package and verify release archive
+    needs: validate
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
@@ -18,28 +45,64 @@ jobs:
       # the x86_64 runtime only under Rosetta in the following job.
       - run: make runtime
       - id: package
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
         run: |
-          task_version="${GITHUB_REF_NAME#v}"
-          make dist VERSION="$task_version"
-          printf 'version=%s\n' "$task_version" >> "$GITHUB_OUTPUT"
-          shasum -a 256 "build/muharc-$task_version-macos-x86_64.tar.gz" | awk '{print $1}' > build/sha256
+          set -euo pipefail
+          make dist VERSION="$VERSION"
+          archive="build/muharc-$VERSION-macos-x86_64.tar.gz"
+          test -f "$archive"
+          tar -tzf "$archive" | grep -Fq "muharc-$VERSION/bin/uharc"
       - uses: actions/upload-artifact@v4
         with:
           name: muharc-x86_64
-          path: build/muharc-${{ steps.package.outputs.version }}-macos-x86_64.tar.gz
+          path: build/muharc-${{ needs.validate.outputs.version }}-macos-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  prerelease:
+    name: Create or resume prerelease
+    needs: [validate, package-archive]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: muharc-x86_64
+          path: artifacts
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "build/muharc-${{ steps.package.outputs.version }}-macos-x86_64.tar.gz" --prerelease --title "$GITHUB_REF_NAME"
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="artifacts/muharc-$VERSION-macos-x86_64.tar.gz"
+          test -f "$archive"
+          if release_json="$(gh release view "$TAG" --json isDraft,isPrerelease 2>/dev/null)"; then
+            test "$(jq -r '.isDraft' <<<"$release_json")" = false
+            test "$(jq -r '.isPrerelease' <<<"$release_json")" = true
+          else
+            gh release create "$TAG" --prerelease --verify-tag \
+              --title "muharc $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" "$archive" --clobber
 
   rosetta-smoke:
-    needs: build-and-release
+    name: Smoke-test the x86_64 runtime through Rosetta
+    needs: package-archive
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: muharc-x86_64
-      - run: |
+      - shell: bash
+        run: |
+          set -euo pipefail
           sudo softwareupdate --install-rosetta --agree-to-license
           task_archive=$(find . -name 'muharc-*-macos-x86_64.tar.gz' -print -quit)
           tar -xzf "$task_archive"
@@ -48,30 +111,90 @@ jobs:
           "$task_dir/bin/uharc" --version
           MUHARC_RUNTIME_DIR="$task_dir/libexec/muharc" ./tests/uharc_integration_test.sh
 
-  publish-tap:
-    needs: rosetta-smoke
+  update-tap:
+    name: Test and update Homebrew tap
+    needs: [validate, package-archive, prerelease, rosetta-smoke]
     runs-on: macos-15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          path: source
+      - name: Checkout personal Homebrew tap default branch
+        uses: actions/checkout@v4
+        with:
+          repository: ghaschel/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           name: muharc-x86_64
-      - env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
+          path: artifacts
+      - name: Render formula and prepare local tap commit
+        id: formula
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
         run: |
-          test -n "$HOMEBREW_TAP_TOKEN"
-          task_version="${GITHUB_REF_NAME#v}"
-          task_archive=$(find . -name 'muharc-*-macos-x86_64.tar.gz' -print -quit)
-          task_sha=$(shasum -a 256 "$task_archive" | awk '{print $1}')
-          task_tap=$(mktemp -d)
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/ghaschel/homebrew-tap.git" "$task_tap"
-          sed -e "s/{{VERSION}}/$task_version/g" -e "s/{{SHA256}}/$task_sha/g" templates/muharc.rb.tmpl > "$task_tap/Formula/muharc.rb"
-          brew tap ghaschel/tap "$task_tap"
+          set -euo pipefail
+          archive="artifacts/muharc-$VERSION-macos-x86_64.tar.gz"
+          test -f "$archive"
+          sha256="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          if [ -f tap/Formula/muharc.rb ]; then
+            existing_version="$(ruby -ne 'match = $_.match(%r{/muharc-([^/"]+)-macos-x86_64\.tar\.gz}); puts match[1] if match; exit if match' tap/Formula/muharc.rb)"
+            if [ -n "$existing_version" ] && ! ruby -e 'require "rubygems"; existing = Gem::Version.new(ARGV[0]); requested = Gem::Version.new(ARGV[1]); exit(requested >= existing ? 0 : 1)' "$existing_version" "$VERSION"; then
+              echo "Refusing to replace newer tap formula $existing_version with $VERSION." >&2
+              exit 1
+            fi
+          fi
+          sed -e "s/{{VERSION}}/$VERSION/g" -e "s/{{SHA256}}/$sha256/g" \
+            source/templates/muharc.rb.tmpl > tap/Formula/muharc.rb
+          if git -C tap diff --quiet -- Formula/muharc.rb && \
+            [ -z "$(git -C tap ls-files --others --exclude-standard -- Formula/muharc.rb)" ]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            git -C tap config user.name 'github-actions[bot]'
+            git -C tap config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git -C tap add Formula/muharc.rb
+            git -C tap commit -m "muharc $VERSION"
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install from local tap and smoke-test formula
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo softwareupdate --install-rosetta --agree-to-license
+          brew tap ghaschel/tap "$GITHUB_WORKSPACE/tap"
           brew audit --strict ghaschel/tap/muharc
-          HOMEBREW_NO_INSTALL_FROM_API=1 brew install ghaschel/tap/muharc
-          uharc --version
-          git -C "$task_tap" add Formula/muharc.rb
-          git -C "$task_tap" commit -m "muharc $task_version"
-          git -C "$task_tap" push origin main
-          gh release edit "$GITHUB_REF_NAME" --prerelease=false
+          HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source ghaschel/tap/muharc
+          uharc --version | grep -Fx "uharc $VERSION"
+          task_smoke=$(mktemp -d)
+          printf 'muharc formula smoke test\n' > "$task_smoke/input.txt"
+          uharc a "$task_smoke/smoke.uha" "$task_smoke/input.txt"
+          uharc t "$task_smoke/smoke.uha"
+      - name: Push tested tap update
+        if: steps.formula.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          task_branch="$(git -C tap branch --show-current)"
+          test -n "$task_branch"
+          git -C tap push origin HEAD:"$task_branch"
+
+  publish-release:
+    name: Publish GitHub release
+    needs: update-tap
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --prerelease=false
