@@ -1,0 +1,4 @@
+# Build input for scripts/build-wibo.sh. Do not change the commit without refreshing
+# patches/wibo-uharc.patch and the end-to-end compatibility suite.
+WIBO_REPOSITORY=https://github.com/decompals/wibo.git
+WIBO_COMMIT=e8f4795ca29e4eb3fdd57e39d3a7490c8eef185b

@@ -1,0 +1,70 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install cmake ninja python
+      - run: make test
+      - id: package
+        run: |
+          task_version="${GITHUB_REF_NAME#v}"
+          make dist VERSION="$task_version"
+          printf 'version=%s\n' "$task_version" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "build/muharc-$task_version-macos-x86_64.tar.gz" | awk '{print $1}' > build/sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: muharc-x86_64
+          path: build/muharc-${{ steps.package.outputs.version }}-macos-x86_64.tar.gz
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "build/muharc-${{ steps.package.outputs.version }}-macos-x86_64.tar.gz" --prerelease --title "$GITHUB_REF_NAME"
+
+  rosetta-smoke:
+    needs: build-and-release
+    runs-on: macos-15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: muharc-x86_64
+      - run: |
+          /usr/bin/arch -x86_64 /usr/bin/true
+          task_archive=$(find . -name 'muharc-*-macos-x86_64.tar.gz' -print -quit)
+          tar -xzf "$task_archive"
+          task_dir=$(find . -type d -name 'muharc-*' -print -quit)
+          "$task_dir/bin/uharc" --version
+
+  publish-tap:
+    needs: rosetta-smoke
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: muharc-x86_64
+      - env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -n "$HOMEBREW_TAP_TOKEN"
+          task_version="${GITHUB_REF_NAME#v}"
+          task_archive=$(find . -name 'muharc-*-macos-x86_64.tar.gz' -print -quit)
+          task_sha=$(shasum -a 256 "$task_archive" | awk '{print $1}')
+          task_tap=$(mktemp -d)
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/ghaschel/homebrew-tap.git" "$task_tap"
+          sed -e "s/{{VERSION}}/$task_version/g" -e "s/{{SHA256}}/$task_sha/g" templates/muharc.rb.tmpl > "$task_tap/Formula/muharc.rb"
+          brew audit --strict "$task_tap/Formula/muharc.rb"
+          brew install "$task_tap/Formula/muharc.rb"
+          uharc --version
+          git -C "$task_tap" add Formula/muharc.rb
+          git -C "$task_tap" commit -m "muharc $task_version"
+          git -C "$task_tap" push origin main
+          gh release edit "$GITHUB_REF_NAME" --prerelease=false

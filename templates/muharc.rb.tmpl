@@ -1,0 +1,17 @@
+class Muharc < Formula
+  desc "macOS wrapper for the UHARC 0.6b archival utility"
+  homepage "https://github.com/ghaschel/muharc"
+  url "https://github.com/ghaschel/muharc/releases/download/v{{VERSION}}/muharc-{{VERSION}}-macos-x86_64.tar.gz"
+  sha256 "{{SHA256}}"
+  license :cannot_represent
+
+  def install
+    bin.install "bin/uharc"
+    libexec.install "libexec/muharc"
+    (share/"zsh/site-functions").install "share/zsh/site-functions/_uharc"
+  end
+
+  test do
+    assert_match "uharc {{VERSION}}", shell_output("#{bin}/uharc --version")
+  end
+end

@@ -1,0 +1,50 @@
+#compdef uharc
+
+_uharc() {
+  local context state state_descr line
+  typeset -A opt_args
+  local -a commands
+
+  commands=(
+    'a:add files to an archive'
+    'e:extract files without restoring paths'
+    'x:extract files with their stored paths'
+    'l:list an archive'
+    't:test an archive'
+    'v:view archive information'
+  )
+
+  _arguments -C \
+    '(-h --help)'{-h,--help}'[show UHARC help]' \
+    '1:UHARC command:->command' \
+    '*::UHARC argument:->argument'
+
+  case $state in
+    command)
+      _describe -t commands 'UHARC command' commands
+      ;;
+    argument)
+      case ${words[2]} in
+        a)
+          if (( CURRENT == 3 )); then
+            _files -g '*.(uha|uhr|uhar)'
+          else
+            _files
+          fi
+          ;;
+        e|x|l|t|v)
+          if (( CURRENT == 3 )); then
+            _files -g '*.(uha|uhr|uhar)'
+          else
+            _files
+          fi
+          ;;
+        *)
+          _files
+          ;;
+      esac
+      ;;
+  esac
+}
+
+_uharc "$@"

@@ -1,0 +1,74 @@
+#!/bin/sh
+
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+runtime_dir=$(CDPATH= cd -- "$script_dir/../libexec/muharc" && pwd -P)
+wibo=$runtime_dir/wibo
+uharc_exe=$runtime_dir/uharc.exe
+
+usage() {
+  cat <<'EOF'
+Usage: uharc [UHARC arguments]
+
+macOS wrapper for the bundled UHARC 0.6a executable.
+
+Wrapper options:
+  --help              Show this help text.
+  --version           Show the bundled muharc version.
+  --completion zsh    Write zsh completion source to standard output.
+
+All other arguments, including no arguments, are passed unchanged to UHARC.
+EOF
+}
+
+case "${1-}" in
+  --help)
+    [ "$#" -eq 1 ] || {
+      printf '%s\n' 'uharc: --help cannot be combined with UHARC arguments' >&2
+      exit 64
+    }
+    usage
+    exit 0
+    ;;
+  --version)
+    [ "$#" -eq 1 ] || {
+      printf '%s\n' 'uharc: --version cannot be combined with UHARC arguments' >&2
+      exit 64
+    }
+    [ -r "$runtime_dir/VERSION" ] || {
+      printf '%s\n' 'uharc: bundled version metadata is missing' >&2
+      exit 70
+    }
+    version=$(tr -d '\r\n' < "$runtime_dir/VERSION")
+    printf 'uharc %s\n' "$version"
+    exit 0
+    ;;
+  --completion)
+    [ "$#" -eq 2 ] && [ "$2" = zsh ] || {
+      printf '%s\n' 'Usage: uharc --completion zsh' >&2
+      exit 64
+    }
+    [ -r "$runtime_dir/_uharc" ] || {
+      printf '%s\n' 'uharc: bundled zsh completion is missing' >&2
+      exit 70
+    }
+    cat "$runtime_dir/_uharc"
+    exit 0
+    ;;
+esac
+
+[ -x "$wibo" ] && [ -f "$uharc_exe" ] || {
+  printf '%s\n' 'uharc: bundled runtime is incomplete; reinstall with Homebrew.' >&2
+  exit 70
+}
+
+if [ "$(uname -m)" = arm64 ]; then
+  if ! /usr/bin/arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+    printf '%s\n' 'uharc: this x86_64 runtime needs Rosetta 2. Install it with: softwareupdate --install-rosetta --agree-to-license' >&2
+    exit 69
+  fi
+  exec /usr/bin/arch -x86_64 "$wibo" "$uharc_exe" "$@"
+fi
+
+exec "$wibo" "$uharc_exe" "$@"

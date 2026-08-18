@@ -1,0 +1,39 @@
+# Third-party notices
+
+## UHARC 0.6b
+
+`vendor/uharc/uharc.exe` is UHARC 0.6b, Copyright (c) 1997–2005 Uwe Herklotz.
+All rights reserved. It is freeware for non-commercial use only; this
+distribution does not grant commercial-use rights. See the executable banner
+and <https://epnu.wordpress.com/2009/09/07/uharc-0-6a-command-line-adn-download/>.
+
+## Wibo
+
+The bundled runtime is built from decompals/wibo at
+`e8f4795ca29e4eb3fdd57e39d3a7490c8eef185b`, plus `patches/wibo-uharc.patch`.
+It is MIT licensed, Copyright (c) 2022–2024 Ash Wolf & Decompals:
+
+MIT License
+
+Copyright (c) 2022-2024 Ash Wolf & Decompals
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Wibo's optional Wine CRT DLLs are disabled with `-DWIBO_ENABLE_WINE_DLLS=NO`;
+no Wine components are included.

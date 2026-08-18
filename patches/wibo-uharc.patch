@@ -1,0 +1,598 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7deb182..926c01c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -501,6 +501,7 @@ if (WIBO_ENABLE_FIXTURE_TESTS)
+         wibo_add_fixture_bin(NAME test_getfileattributesex SOURCES test/test_getfileattributesex.c)
+         wibo_add_fixture_bin(NAME test_locale SOURCES test/test_locale.c)
+         wibo_add_fixture_bin(NAME test_lstrcpyn SOURCES test/test_lstrcpyn.c)
++        wibo_add_fixture_bin(NAME test_formatmessage SOURCES test/test_formatmessage.c)
+         wibo_add_fixture_bin(NAME test_critical_section SOURCES test/test_critical_section.c)
+         wibo_add_fixture_bin(NAME test_synchapi SOURCES test/test_synchapi.c)
+         wibo_add_fixture_bin(NAME test_processes SOURCES test/test_processes.c)
+diff --git a/dll/kernel32/fileapi.cpp b/dll/kernel32/fileapi.cpp
+index 31b5083..6da452c 100644
+--- a/dll/kernel32/fileapi.cpp
++++ b/dll/kernel32/fileapi.cpp
+@@ -562,6 +562,22 @@ bool tryOpenConsoleDevice(DWORD dwDesiredAccess, DWORD dwShareMode, DWORD dwCrea
+ 
+ namespace kernel32 {
+ 
++BOOL WINAPI AreFileApisANSI() {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("AreFileApisANSI() -> TRUE (UTF-8)\n");
++	return TRUE;
++}
++
++void WINAPI SetFileApisToANSI() {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("SetFileApisToANSI() (UTF-8)\n");
++}
++
++void WINAPI SetFileApisToOEM() {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("SetFileApisToOEM() ignored (UTF-8)\n");
++}
++
+ DWORD WINAPI GetFileAttributesA(LPCSTR lpFileName) {
+ 	HOST_CONTEXT_GUARD();
+ 	if (!lpFileName) {
+diff --git a/dll/kernel32/fileapi.h b/dll/kernel32/fileapi.h
+index 0e1d443..5767c50 100644
+--- a/dll/kernel32/fileapi.h
++++ b/dll/kernel32/fileapi.h
+@@ -57,6 +57,9 @@ constexpr DWORD INVALID_FILE_SIZE = 0xFFFFFFFF;
+ namespace kernel32 {
+ 
+ DWORD WINAPI GetFullPathNameA(LPCSTR lpFileName, DWORD nBufferLength, LPSTR lpBuffer, GUEST_PTR *lpFilePart);
++BOOL WINAPI AreFileApisANSI();
++void WINAPI SetFileApisToANSI();
++void WINAPI SetFileApisToOEM();
+ DWORD WINAPI GetFullPathNameW(LPCWSTR lpFileName, DWORD nBufferLength, LPWSTR lpBuffer, GUEST_PTR *lpFilePart);
+ DWORD WINAPI GetShortPathNameA(LPCSTR lpszLongPath, LPSTR lpszShortPath, DWORD cchBuffer);
+ DWORD WINAPI GetShortPathNameW(LPCWSTR lpszLongPath, LPWSTR lpszShortPath, DWORD cchBuffer);
+diff --git a/dll/kernel32/processthreadsapi.cpp b/dll/kernel32/processthreadsapi.cpp
+index 46e4a8d..f5b2713 100644
+--- a/dll/kernel32/processthreadsapi.cpp
++++ b/dll/kernel32/processthreadsapi.cpp
+@@ -577,6 +577,16 @@ DWORD WINAPI GetPriorityClass(HANDLE hProcess) {
+ 	return NORMAL_PRIORITY_CLASS;
+ }
+ 
++BOOL WINAPI SetPriorityClass(HANDLE hProcess, DWORD dwPriorityClass) {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("SetPriorityClass(%p, 0x%x)\n", hProcess, dwPriorityClass);
++	if (hProcess != GetCurrentProcess() || dwPriorityClass == 0) {
++		setLastError(ERROR_INVALID_PARAMETER);
++		return FALSE;
++	}
++	return TRUE;
++}
++
+ BOOL WINAPI GetThreadTimes(HANDLE hThread, FILETIME *lpCreationTime, FILETIME *lpExitTime, FILETIME *lpKernelTime,
+ 						   FILETIME *lpUserTime) {
+ 	HOST_CONTEXT_GUARD();
+diff --git a/dll/kernel32/processthreadsapi.h b/dll/kernel32/processthreadsapi.h
+index 1d8e3ac..ff6fc7e 100644
+--- a/dll/kernel32/processthreadsapi.h
++++ b/dll/kernel32/processthreadsapi.h
+@@ -91,6 +91,7 @@ BOOL WINAPI GetExitCodeThread(HANDLE hThread, LPDWORD lpExitCode);
+ BOOL WINAPI SetThreadPriority(HANDLE hThread, int nPriority);
+ int WINAPI GetThreadPriority(HANDLE hThread);
+ DWORD WINAPI GetPriorityClass(HANDLE hProcess);
++BOOL WINAPI SetPriorityClass(HANDLE hProcess, DWORD dwPriorityClass);
+ BOOL WINAPI GetThreadTimes(HANDLE hThread, FILETIME *lpCreationTime, FILETIME *lpExitTime, FILETIME *lpKernelTime,
+ 						   FILETIME *lpUserTime);
+ BOOL WINAPI CreateProcessA(LPCSTR lpApplicationName, LPSTR lpCommandLine, LPSECURITY_ATTRIBUTES lpProcessAttributes,
+diff --git a/dll/kernel32/stringapiset.cpp b/dll/kernel32/stringapiset.cpp
+index c85a159..83066c2 100644
+--- a/dll/kernel32/stringapiset.cpp
++++ b/dll/kernel32/stringapiset.cpp
+@@ -19,7 +19,6 @@ int WINAPI WideCharToMultiByte(UINT CodePage, DWORD dwFlags, LPCWCH lpWideCharSt
+ 	VERBOSE_LOG("WideCharToMultiByte(%u, %u, %p, %d, %p, %d, %p, %p)\n", CodePage, dwFlags, lpWideCharStr, cchWideChar,
+ 				lpMultiByteStr, cbMultiByte, lpDefaultChar, lpUsedDefaultChar);
+ 
+-	(void)CodePage;
+ 	(void)dwFlags;
+ 	(void)lpDefaultChar;
+ 
+@@ -31,26 +30,27 @@ int WINAPI WideCharToMultiByte(UINT CodePage, DWORD dwFlags, LPCWCH lpWideCharSt
+ 	if (lpUsedDefaultChar) {
+ 		*lpUsedDefaultChar = FALSE;
+ 	}
+-	if (cchWideChar == -1) {
+-		cchWideChar = static_cast<int>(wstrlen(lpWideCharStr)) + 1;
+-	}
+-	if (cbMultiByte == 0) {
+-		return cchWideChar;
++	if (CodePage != 0 && CodePage != 1 && CodePage != 65001) {
++		setLastError(ERROR_INVALID_PARAMETER);
++		return 0;
+ 	}
+-	if (cbMultiByte < cchWideChar) {
++	if (cchWideChar == -1)
++		cchWideChar = static_cast<int>(wstrlen(lpWideCharStr)) + 1;
++	std::string converted = wideStringToString(lpWideCharStr, cchWideChar);
++	if (cbMultiByte == 0)
++		return static_cast<int>(converted.size());
++	if (static_cast<size_t>(cbMultiByte) < converted.size()) {
+ 		setLastError(ERROR_INSUFFICIENT_BUFFER);
+ 		return 0;
+ 	}
+-	for (int i = 0; i < cchWideChar; i++) {
+-		lpMultiByteStr[i] = static_cast<char>(lpWideCharStr[i] & 0xFF);
+-	}
++	std::memcpy(lpMultiByteStr, converted.data(), converted.size());
+ 
+ 	if (wibo::debugEnabled) {
+-		std::string s(lpMultiByteStr, lpMultiByteStr + cchWideChar);
+-		VERBOSE_LOG("Converted string: [%s] (len %d)\n", s.c_str(), cchWideChar);
++		std::string s(lpMultiByteStr, lpMultiByteStr + converted.size());
++		VERBOSE_LOG("Converted string: [%s] (len %zu)\n", s.c_str(), converted.size());
+ 	}
+ 
+-	return cchWideChar;
++	return static_cast<int>(converted.size());
+ }
+ 
+ int WINAPI MultiByteToWideChar(UINT CodePage, DWORD dwFlags, LPCCH lpMultiByteStr, int cbMultiByte,
+@@ -58,7 +58,6 @@ int WINAPI MultiByteToWideChar(UINT CodePage, DWORD dwFlags, LPCCH lpMultiByteSt
+ 	HOST_CONTEXT_GUARD();
+ 	VERBOSE_LOG("MultiByteToWideChar(%u, %u, %d, %d)\n", CodePage, dwFlags, cbMultiByte, cchWideChar);
+ 
+-	(void)CodePage;
+ 	(void)dwFlags;
+ 
+ 	if (!lpMultiByteStr || cbMultiByte == 0 || cbMultiByte < -1 || cchWideChar < 0 ||
+@@ -66,14 +65,17 @@ int WINAPI MultiByteToWideChar(UINT CodePage, DWORD dwFlags, LPCCH lpMultiByteSt
+ 		setLastError(ERROR_INVALID_PARAMETER);
+ 		return 0;
+ 	}
+-	if (cbMultiByte == -1) {
+-		cbMultiByte = static_cast<int>(strlen(lpMultiByteStr)) + 1;
+-	}
+-
+-	if (cchWideChar == 0) {
+-		return cbMultiByte;
++	if (CodePage != 0 && CodePage != 1 && CodePage != 65001) {
++		setLastError(ERROR_INVALID_PARAMETER);
++		return 0;
+ 	}
+-	if (cchWideChar < cbMultiByte) {
++	if (cbMultiByte == -1)
++		cbMultiByte = static_cast<int>(strlen(lpMultiByteStr)) + 1;
++	auto converted = stringToWideString(lpMultiByteStr, static_cast<size_t>(cbMultiByte));
++	converted.pop_back();
++	if (cchWideChar == 0)
++		return static_cast<int>(converted.size());
++	if (static_cast<size_t>(cchWideChar) < converted.size()) {
+ 		setLastError(ERROR_INSUFFICIENT_BUFFER);
+ 		return 0;
+ 	}
+@@ -82,10 +84,8 @@ int WINAPI MultiByteToWideChar(UINT CodePage, DWORD dwFlags, LPCCH lpMultiByteSt
+ 		VERBOSE_LOG("Converting string: [%s] (len %d)\n", s.c_str(), cbMultiByte);
+ 	}
+ 
+-	for (int i = 0; i < cbMultiByte; i++) {
+-		lpWideCharStr[i] = static_cast<uint16_t>(lpMultiByteStr[i] & 0xFF);
+-	}
+-	return cbMultiByte;
++	std::memcpy(lpWideCharStr, converted.data(), converted.size() * sizeof(uint16_t));
++	return static_cast<int>(converted.size());
+ }
+ 
+ BOOL WINAPI GetStringTypeW(DWORD dwInfoType, LPCWCH lpSrcStr, int cchSrc, LPWORD lpCharType) {
+diff --git a/dll/kernel32/winbase.cpp b/dll/kernel32/winbase.cpp
+index 7dba258..fcd41d4 100644
+--- a/dll/kernel32/winbase.cpp
++++ b/dll/kernel32/winbase.cpp
+@@ -43,6 +43,34 @@ constexpr UINT GMEM_MODIFY = 0x0080;
+ constexpr UINT LMEM_MOVEABLE = 0x0002;
+ constexpr UINT LMEM_ZEROINIT = 0x0040;
+ 
++constexpr DWORD FORMAT_MESSAGE_FROM_STRING = 0x00000400;
++
++bool formatMessageStringInserts(const char *source, const va_list *arguments, std::string &message) {
++	if (!source || !arguments)
++		return false;
++
++	GUEST_PTR argumentList = GUEST_NULL;
++	std::memcpy(&argumentList, arguments, sizeof(argumentList));
++	if (argumentList == GUEST_NULL)
++		return false;
++
++	for (size_t index = 0; source[index] != '\0'; ++index) {
++		if (source[index] != '%' || source[index + 1] < '1' || source[index + 1] > '9') {
++			message.push_back(source[index]);
++			continue;
++		}
++
++		const unsigned int argumentIndex = static_cast<unsigned int>(source[++index] - '1');
++		GUEST_PTR value = GUEST_NULL;
++		std::memcpy(&value, fromGuestPtr<const GUEST_PTR>(argumentList) + argumentIndex, sizeof(value));
++		const char *insert = fromGuestPtr<const char>(value);
++		if (!insert)
++			return false;
++		message += insert;
++	}
++	return true;
++}
++
+ constexpr ATOM kMinIntegerAtom = 0x0001;
+ constexpr ATOM kMaxIntegerAtom = 0xBFFF;
+ constexpr ATOM kMinStringAtom = 0xC000;
+@@ -602,8 +630,19 @@ DWORD WINAPI FormatMessageA(DWORD dwFlags, LPCVOID lpSource, DWORD dwMessageId,
+ 		// FORMAT_MESSAGE_ARGUMENT_ARRAY
+ 	} else if (dwFlags & 0x00000800) {
+ 		// FORMAT_MESSAGE_FROM_HMODULE
+-	} else if (dwFlags & 0x00000400) {
+-		// FORMAT_MESSAGE_FROM_STRING
++	} else if (dwFlags & FORMAT_MESSAGE_FROM_STRING) {
++		std::string message;
++		if (!formatMessageStringInserts(static_cast<const char *>(lpSource), Arguments, message)) {
++			setLastError(ERROR_INVALID_PARAMETER);
++			return 0;
++		}
++		const size_t length = message.length();
++		if (!lpBuffer || static_cast<size_t>(nSize) <= length) {
++			setLastError(ERROR_INSUFFICIENT_BUFFER);
++			return 0;
++		}
++		std::memcpy(lpBuffer, message.c_str(), length + 1);
++		return static_cast<DWORD>(length);
+ 	} else if (dwFlags & 0x00001000) {
+ 		// FORMAT_MESSAGE_FROM_SYSTEM
+ 		std::string message = std::system_category().message(static_cast<int>(dwMessageId));
+diff --git a/dll/kernel32/winbase.h b/dll/kernel32/winbase.h
+index 62e6ba6..f0df941 100644
+--- a/dll/kernel32/winbase.h
++++ b/dll/kernel32/winbase.h
+@@ -82,8 +82,8 @@ ATOM WINAPI AddAtomW(LPCWSTR lpString);
+ UINT WINAPI GetAtomNameA(ATOM nAtom, LPSTR lpBuffer, int nSize);
+ UINT WINAPI GetAtomNameW(ATOM nAtom, LPWSTR lpBuffer, int nSize);
+ UINT WINAPI SetHandleCount(UINT uNumber);
+-// DWORD WINAPI FormatMessageA(DWORD dwFlags, LPCVOID lpSource, DWORD dwMessageId, DWORD dwLanguageId, LPSTR lpBuffer,
+-// 							DWORD nSize, va_list *Arguments);
++DWORD WINAPI FormatMessageA(DWORD dwFlags, LPCVOID lpSource, DWORD dwMessageId, DWORD dwLanguageId, LPSTR lpBuffer,
++							DWORD nSize, va_list *Arguments);
+ PVOID WINAPI EncodePointer(PVOID Ptr);
+ PVOID WINAPI DecodePointer(PVOID Ptr);
+ BOOL WINAPI SetDllDirectoryA(LPCSTR lpPathName);
+diff --git a/dll/kernel32/wincon.cpp b/dll/kernel32/wincon.cpp
+index 8a26a6a..93e0828 100644
+--- a/dll/kernel32/wincon.cpp
++++ b/dll/kernel32/wincon.cpp
+@@ -93,6 +93,35 @@ BOOL WINAPI WriteConsoleW(HANDLE hConsoleOutput, LPCWSTR lpBuffer, DWORD nNumber
+ 	return FALSE;
+ }
+ 
++BOOL WINAPI WriteConsoleA(HANDLE hConsoleOutput, LPCVOID lpBuffer, DWORD nNumberOfCharsToWrite,
++						  LPDWORD lpNumberOfCharsWritten, LPVOID lpReserved) {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("WriteConsoleA(%p, %p, %u, %p, %p)\n", hConsoleOutput, lpBuffer, nNumberOfCharsToWrite,
++			  lpNumberOfCharsWritten, lpReserved);
++	(void)lpReserved;
++	if (lpNumberOfCharsWritten)
++		*lpNumberOfCharsWritten = 0;
++	if (!lpBuffer && nNumberOfCharsToWrite != 0) {
++		setLastError(ERROR_INVALID_PARAMETER);
++		return FALSE;
++	}
++
++	auto file = wibo::handles().getAs<FileObject>(hConsoleOutput);
++	if (file && (file->fd == STDOUT_FILENO || file->fd == STDERR_FILENO)) {
++		auto io = files::write(file.get(), static_cast<const char *>(lpBuffer), nNumberOfCharsToWrite, std::nullopt, true);
++		if (lpNumberOfCharsWritten)
++			*lpNumberOfCharsWritten = io.bytesTransferred;
++		if (io.unixError != 0) {
++			setLastError(wibo::winErrorFromErrno(io.unixError));
++			return FALSE;
++		}
++		return TRUE;
++	}
++
++	setLastError(ERROR_INVALID_HANDLE);
++	return FALSE;
++}
++
+ DWORD WINAPI GetConsoleTitleA(LPSTR lpConsoleTitle, DWORD nSize) {
+ 	HOST_CONTEXT_GUARD();
+ 	DEBUG_LOG("GetConsoleTitleA(%p, %u)\n", lpConsoleTitle, nSize);
+@@ -113,6 +142,16 @@ DWORD WINAPI GetConsoleTitleW(LPWSTR lpConsoleTitle, DWORD nSize) {
+ 	return 0;
+ }
+ 
++BOOL WINAPI SetConsoleTitleA(LPCSTR lpConsoleTitle) {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("SetConsoleTitleA(%s)\n", lpConsoleTitle ? lpConsoleTitle : "(null)");
++	if (!lpConsoleTitle) {
++		setLastError(ERROR_INVALID_PARAMETER);
++		return FALSE;
++	}
++	return TRUE;
++}
++
+ BOOL WINAPI PeekConsoleInputA(HANDLE hConsoleInput, INPUT_RECORD *lpBuffer, DWORD nLength,
+ 							  LPDWORD lpNumberOfEventsRead) {
+ 	HOST_CONTEXT_GUARD();
+diff --git a/dll/kernel32/wincon.h b/dll/kernel32/wincon.h
+index a34b8ac..53a1c20 100644
+--- a/dll/kernel32/wincon.h
++++ b/dll/kernel32/wincon.h
+@@ -36,8 +36,11 @@ BOOL WINAPI SetConsoleCtrlHandler(PHANDLER_ROUTINE HandlerRoutine, BOOL Add);
+ BOOL WINAPI GetConsoleScreenBufferInfo(HANDLE hConsoleOutput, CONSOLE_SCREEN_BUFFER_INFO *lpConsoleScreenBufferInfo);
+ BOOL WINAPI WriteConsoleW(HANDLE hConsoleOutput, LPCWSTR lpBuffer, DWORD nNumberOfCharsToWrite,
+ 						  LPDWORD lpNumberOfCharsWritten, LPVOID lpReserved);
++BOOL WINAPI WriteConsoleA(HANDLE hConsoleOutput, LPCVOID lpBuffer, DWORD nNumberOfCharsToWrite,
++						  LPDWORD lpNumberOfCharsWritten, LPVOID lpReserved);
+ DWORD WINAPI GetConsoleTitleA(LPSTR lpConsoleTitle, DWORD nSize);
+ DWORD WINAPI GetConsoleTitleW(LPWSTR lpConsoleTitle, DWORD nSize);
++BOOL WINAPI SetConsoleTitleA(LPCSTR lpConsoleTitle);
+ BOOL WINAPI PeekConsoleInputA(HANDLE hConsoleInput, INPUT_RECORD *lpBuffer, DWORD nLength,
+ 							  LPDWORD lpNumberOfEventsRead);
+ BOOL WINAPI ReadConsoleInputA(HANDLE hConsoleInput, INPUT_RECORD *lpBuffer, DWORD nLength,
+diff --git a/dll/kernel32/winnls.cpp b/dll/kernel32/winnls.cpp
+index 6d684c0..34bb04e 100644
+--- a/dll/kernel32/winnls.cpp
++++ b/dll/kernel32/winnls.cpp
+@@ -26,6 +26,7 @@ constexpr DWORD LOCALE_ALLOW_NEUTRAL_NAMES = 0x08000000;
+ constexpr DWORD kLocaleNoUserOverride = 0x80000000u;
+ constexpr DWORD kLocaleReturnNumber = 0x20000000u;
+ constexpr DWORD kLocaleFlagMask = 0xF0000000u;
++constexpr UINT kUtf8CodePage = 65001;
+ 
+ int compareStrings(const std::string &a, const std::string &b, DWORD dwCmpFlags) {
+ 	for (size_t i = 0;; ++i) {
+@@ -93,8 +94,14 @@ namespace kernel32 {
+ 
+ UINT WINAPI GetACP() {
+ 	HOST_CONTEXT_GUARD();
+-	DEBUG_LOG("GetACP() -> %u\n", 28591);
+-	return 28591; // Latin1 (ISO/IEC 8859-1)
++	DEBUG_LOG("GetACP() -> %u\n", kUtf8CodePage);
++	return kUtf8CodePage;
++}
++
++UINT WINAPI GetOEMCP() {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("GetOEMCP() -> %u\n", kUtf8CodePage);
++	return kUtf8CodePage;
+ }
+ 
+ LANGID WINAPI GetSystemDefaultLangID() {
+@@ -156,14 +163,13 @@ LCID WINAPI LocaleNameToLCID(LPCWSTR lpName, DWORD dwFlags) {
+ BOOL WINAPI GetCPInfo(UINT CodePage, LPCPINFO lpCPInfo) {
+ 	HOST_CONTEXT_GUARD();
+ 	DEBUG_LOG("GetCPInfo(%u, %p)\n", CodePage, lpCPInfo);
+-	(void)CodePage;
+ 
+-	if (!lpCPInfo) {
++	if (!lpCPInfo || (CodePage != 0 && CodePage != 1 && CodePage != kUtf8CodePage)) {
+ 		setLastError(ERROR_INVALID_PARAMETER);
+ 		return FALSE;
+ 	}
+ 
+-	lpCPInfo->MaxCharSize = 1;
++	lpCPInfo->MaxCharSize = 4;
+ 	std::fill(lpCPInfo->DefaultChar, lpCPInfo->DefaultChar + MAX_DEFAULTCHAR, 0);
+ 	lpCPInfo->DefaultChar[0] = '?';
+ 	std::fill(lpCPInfo->LeadByte, lpCPInfo->LeadByte + MAX_LEADBYTES, 0);
+diff --git a/dll/kernel32/winnls.h b/dll/kernel32/winnls.h
+index 3700351..2bb7989 100644
+--- a/dll/kernel32/winnls.h
++++ b/dll/kernel32/winnls.h
+@@ -17,6 +17,7 @@ typedef BOOL(_CC_STDCALL *LOCALE_ENUMPROCA)(LPSTR);
+ namespace kernel32 {
+ 
+ UINT WINAPI GetACP();
++UINT WINAPI GetOEMCP();
+ LANGID WINAPI GetSystemDefaultLangID();
+ LANGID WINAPI GetUserDefaultUILanguage();
+ int WINAPI GetUserDefaultLocaleName(LPWSTR lpLocaleName, int cchLocaleName);
+diff --git a/dll/user32.cpp b/dll/user32.cpp
+index 1d30c1d..727e88d 100644
+--- a/dll/user32.cpp
++++ b/dll/user32.cpp
+@@ -133,6 +133,29 @@ int WINAPI MessageBoxA(HWND hwnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType) {
+ 	return 1;
+ }
+ 
++BOOL WINAPI CharToOemA(LPCSTR pSrc, LPSTR pDst) {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("CharToOemA(%p, %p)\n", pSrc, pDst);
++	if (!pSrc || !pDst) {
++		kernel32::setLastError(ERROR_INVALID_PARAMETER);
++		return FALSE;
++	}
++	std::memmove(pDst, pSrc, std::strlen(pSrc) + 1);
++	return TRUE;
++}
++
++LPSTR WINAPI CharUpperA(LPSTR lpsz) {
++	HOST_CONTEXT_GUARD();
++	DEBUG_LOG("CharUpperA(%p)\n", lpsz);
++	if (!lpsz)
++		return nullptr;
++	for (char *p = lpsz; *p; ++p) {
++		if (*p >= 'a' && *p <= 'z')
++			*p = static_cast<char>(*p - ('a' - 'A'));
++	}
++	return lpsz;
++}
++
+ HKL WINAPI GetKeyboardLayout(DWORD idThread) {
+ 	HOST_CONTEXT_GUARD();
+ 	DEBUG_LOG("STUB: GetKeyboardLayout(%u)\n", idThread);
+diff --git a/dll/user32.h b/dll/user32.h
+index 2fdd833..0cd9240 100644
+--- a/dll/user32.h
++++ b/dll/user32.h
+@@ -7,6 +7,8 @@ namespace user32 {
+ int WINAPI LoadStringA(HMODULE hInstance, UINT uID, LPSTR lpBuffer, int cchBufferMax);
+ int WINAPI LoadStringW(HMODULE hInstance, UINT uID, LPWSTR lpBuffer, int cchBufferMax);
+ int WINAPI MessageBoxA(HWND hwnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType);
++BOOL WINAPI CharToOemA(LPCSTR pSrc, LPSTR pDst);
++LPSTR WINAPI CharUpperA(LPSTR lpsz);
+ HKL WINAPI GetKeyboardLayout(DWORD idThread);
+ HWINSTA WINAPI GetProcessWindowStation();
+ BOOL WINAPI GetUserObjectInformationA(HANDLE hObj, int nIndex, PVOID pvInfo, DWORD nLength, LPDWORD lpnLengthNeeded);
+diff --git a/src/strutil.cpp b/src/strutil.cpp
+index b78849e..1d66517 100644
+--- a/src/strutil.cpp
++++ b/src/strutil.cpp
+@@ -197,9 +197,15 @@ std::string wideStringToString(const uint16_t *src, int len) {
+ 	bool sawWide = false;
+ #endif
+ 
+-	std::string result(count, '\0');
++	std::string result;
++	result.reserve(count);
+ 	for (size_t i = 0; i < count; ++i) {
+-		uint16_t value = src[i];
++		uint32_t value = src[i];
++		if (value >= 0xD800 && value <= 0xDBFF && i + 1 < count && src[i + 1] >= 0xDC00 && src[i + 1] <= 0xDFFF) {
++			value = 0x10000 + ((value - 0xD800) << 10) + (src[++i] - 0xDC00);
++		} else if (value >= 0xD800 && value <= 0xDFFF) {
++			value = 0xFFFD;
++		}
+ #ifndef NDEBUG
+ 		if (i > 0)
+ 			hexDump << ' ';
+@@ -207,7 +213,21 @@ std::string wideStringToString(const uint16_t *src, int len) {
+ 		if (value > 0xFF)
+ 			sawWide = true;
+ #endif
+-		result[i] = static_cast<char>(value & 0xFF);
++		if (value <= 0x7F) {
++			result.push_back(static_cast<char>(value));
++		} else if (value <= 0x7FF) {
++			result.push_back(static_cast<char>(0xC0 | (value >> 6)));
++			result.push_back(static_cast<char>(0x80 | (value & 0x3F)));
++		} else if (value <= 0xFFFF) {
++			result.push_back(static_cast<char>(0xE0 | (value >> 12)));
++			result.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3F)));
++			result.push_back(static_cast<char>(0x80 | (value & 0x3F)));
++		} else {
++			result.push_back(static_cast<char>(0xF0 | (value >> 18)));
++			result.push_back(static_cast<char>(0x80 | ((value >> 12) & 0x3F)));
++			result.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3F)));
++			result.push_back(static_cast<char>(0x80 | (value & 0x3F)));
++		}
+ 	}
+ 
+ #ifndef NDEBUG
+@@ -225,21 +245,57 @@ std::vector<uint16_t> stringToWideString(const char *src, size_t length) {
+ 		return std::vector<uint16_t>{0};
+ 	}
+ 	size_t len = length == static_cast<size_t>(-1) ? std::strlen(src) : length;
+-	std::vector<uint16_t> res(len + 1);
+-	for (size_t i = 0; i < len; ++i) {
+-		res[i] = static_cast<uint16_t>(static_cast<unsigned char>(src[i]));
++	std::vector<uint16_t> res;
++	res.reserve(len + 1);
++	for (size_t i = 0; i < len;) {
++		const unsigned char first = static_cast<unsigned char>(src[i]);
++		uint32_t value = 0xFFFD;
++		size_t width = 1;
++		if (first <= 0x7F) {
++			value = first;
++		} else if (first >= 0xC2 && first <= 0xDF && i + 1 < len &&
++				   (static_cast<unsigned char>(src[i + 1]) & 0xC0) == 0x80) {
++			value = ((first & 0x1F) << 6) | (static_cast<unsigned char>(src[i + 1]) & 0x3F);
++			width = 2;
++		} else if (first >= 0xE0 && first <= 0xEF && i + 2 < len &&
++				   (static_cast<unsigned char>(src[i + 1]) & 0xC0) == 0x80 &&
++				   (static_cast<unsigned char>(src[i + 2]) & 0xC0) == 0x80) {
++			value = ((first & 0x0F) << 12) | ((static_cast<unsigned char>(src[i + 1]) & 0x3F) << 6) |
++					(static_cast<unsigned char>(src[i + 2]) & 0x3F);
++			if (value < 0x800 || (value >= 0xD800 && value <= 0xDFFF))
++				value = 0xFFFD;
++			else
++				width = 3;
++		} else if (first >= 0xF0 && first <= 0xF4 && i + 3 < len &&
++				   (static_cast<unsigned char>(src[i + 1]) & 0xC0) == 0x80 &&
++				   (static_cast<unsigned char>(src[i + 2]) & 0xC0) == 0x80 &&
++				   (static_cast<unsigned char>(src[i + 3]) & 0xC0) == 0x80) {
++			value = ((first & 0x07) << 18) | ((static_cast<unsigned char>(src[i + 1]) & 0x3F) << 12) |
++					((static_cast<unsigned char>(src[i + 2]) & 0x3F) << 6) |
++					(static_cast<unsigned char>(src[i + 3]) & 0x3F);
++			if (value < 0x10000 || value > 0x10FFFF)
++				value = 0xFFFD;
++			else
++				width = 4;
++		}
++
++		if (value <= 0xFFFF) {
++			res.push_back(static_cast<uint16_t>(value));
++		} else {
++			value -= 0x10000;
++			res.push_back(static_cast<uint16_t>(0xD800 | (value >> 10)));
++			res.push_back(static_cast<uint16_t>(0xDC00 | (value & 0x3FF)));
++		}
++		i += width;
+ 	}
+-	res[len] = 0; // ensure NUL termination
++	res.push_back(0); // ensure NUL termination
+ 	return res;
+ }
+ 
+ std::u16string stringToUtf16(std::string_view str) {
+-	std::u16string result;
+-	result.reserve(str.size());
+-	for (unsigned char ch : str) {
+-		result.push_back(static_cast<char16_t>(ch));
+-	}
+-	return result;
++	auto wide = stringToWideString(str.data(), str.size());
++	wide.pop_back();
++	return std::u16string(wide.begin(), wide.end());
+ }
+ 
+ long wstrtol(const uint16_t *string, uint16_t **end_ptr, int base) {
+diff --git a/test/test_formatmessage.c b/test/test_formatmessage.c
+new file mode 100644
+index 0000000..5af4724
+--- /dev/null
++++ b/test/test_formatmessage.c
+@@ -0,0 +1,26 @@
++#include <stdarg.h>
++#include <windows.h>
++
++#include "test_assert.h"
++
++static DWORD format_message(LPCSTR message, LPSTR buffer, DWORD size, ...) {
++	va_list arguments;
++	DWORD result;
++
++	va_start(arguments, size);
++	result = FormatMessageA(FORMAT_MESSAGE_FROM_STRING, message, 0, 0, buffer, size, &arguments);
++	va_end(arguments);
++	return result;
++}
++
++int main(void) {
++	static const char expected_message[] = "second then first";
++	char buffer[256];
++	DWORD result;
++
++	memset(buffer, 'x', sizeof(buffer));
++	result = format_message("%2 then %1", buffer, sizeof(buffer), "first", "second");
++	TEST_CHECK_EQ(strlen(expected_message), result);
++	TEST_CHECK_EQ(0, strcmp(expected_message, buffer));
++	return 0;
++}
+diff --git a/tools/gen_trampolines.py b/tools/gen_trampolines.py
+index 532815f..5a2656c 100644
+--- a/tools/gen_trampolines.py
++++ b/tools/gen_trampolines.py
+@@ -995,6 +995,10 @@ def emit_header_mapping(
+                 or t.kind == TypeKind.ENUM
+                 or t.kind == TypeKind.FUNCTIONPROTO
+                 or t.kind == TypeKind.FUNCTIONNOPROTO
++                or t.kind == TypeKind.CONSTANTARRAY
++                or t.kind == TypeKind.INCOMPLETEARRAY
++                or t.kind == TypeKind.VARIABLEARRAY
++                or t.kind == TypeKind.DEPENDENTSIZEDARRAY
+             ):
+                 return True
+             return t.kind == TypeKind.POINTER and _is_opaque(
