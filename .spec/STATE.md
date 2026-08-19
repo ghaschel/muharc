@@ -1,7 +1,7 @@
 # Project State
 
 **Last updated:** 2026-08-19
-**Current work:** No active feature; the documentation baseline for the shipped `0.1.7` release is complete
+**Current work:** No active feature; recursive `*.*` wildcard compatibility is verified locally and awaiting release
 
 ## Recent decisions
 
@@ -90,6 +90,20 @@ None.
 **Solution:** Document the actual option and skip condition. Do not represent `WIBO_ENABLE_TESTS` as an effective fixture-test control.
 
 **Prevents:** Misleading maintenance guidance when Wibo's test configuration or the build environment changes.
+
+### L-004: Windows `*.*` is not a POSIX glob (2026-08-19)
+
+**Context:** UHARC starts recursive discovery with `FindFirstFileA("*.*")`.
+
+**Problem:** Wibo matched `*.*` literally, excluding dotless directory names,
+and unquoted zsh input expanded before UHARC could perform its own search.
+
+**Solution:** Make the exact Wibo pattern `*.*` match every directory entry,
+as Win32 does, and document that zsh users must quote the intended UHARC
+pattern.
+
+**Prevents:** Recursive archives silently omitting files stored under dotless
+directories.
 
 ## Deferred ideas
 

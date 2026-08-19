@@ -51,6 +51,20 @@ The UHARC 0.6b Windows executable calls Windows APIs that are absent or insuffic
 
 **Independent test:** `tests/uharc_integration_test.sh` performs the full round trip and compares every extracted fixture.
 
+### P1: Recurse through Windows-style wildcards
+
+**User story:** As a user archiving a directory tree with UHARC, I want `-r+`
+with a literal `*.*` pattern to discover dotless directories so that every
+matching nested file reaches the archive.
+
+**Acceptance criteria:**
+
+1. WHEN UHARC calls `FindFirstFileA` with the exact pattern `*.*` THEN the patched runtime SHALL match every directory entry, including dotless names.
+2. WHEN a zsh user passes a wildcard intended for UHARC THEN the documentation SHALL require a quoted literal pattern such as `'input/*.*'`.
+3. WHEN `uharc a -r+ recursive.uha 'input/*.*'` receives files in dotless nested directories THEN archive list, test, extract, and byte comparison SHALL include every fixture.
+
+**Independent test:** `tests/uharc_integration_test.sh` constructs dotless nested directories, performs the quoted recursive wildcard round trip, and compares every extracted file.
+
 ### P1: Supply the minimal API surface UHARC exercises
 
 **User story:** As a maintainer, I want each compatibility shim to have defined success and failure behavior so that additional APIs do not become untracked emulation scope.
@@ -81,9 +95,11 @@ The UHARC 0.6b Windows executable calls Windows APIs that are absent or insuffic
 | WIBO-05 | Provide UHARC-required narrow API shims | `patches/wibo-uharc.patch`, `docs/wibo-uharc-compatibility.md` | Implemented |
 | WIBO-06 | Preserve Unicode names and contents through a UHARC round trip | `tests/uharc_integration_test.sh` | Verified |
 | WIBO-07 | Keep `FormatMessageA` ABI handling covered by a fixture | `patches/wibo-uharc.patch`, Wibo fixture tests | Implemented |
+| WIBO-08 | Match Win32 `*.*` for recursive discovery of dotless directories | `patches/wibo-uharc.patch`, `tests/uharc_integration_test.sh` | Verified |
 
 ## Success criteria
 
 - [x] `make runtime` produces a patched x86_64 Wibo executable from a clean clone.
 - [x] `make test` archives, lists, tests, extracts, and byte-compares every Unicode fixture.
+- [x] `make test` includes a quoted `*.*` recursive round trip through dotless directories.
 - [x] The release workflow runs the same archive suite through Rosetta.

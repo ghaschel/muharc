@@ -13,6 +13,18 @@ Intel Macs run it natively. Apple Silicon uses Rosetta 2; install it with
 `uharc --help`, `uharc --version`, and `uharc --completion zsh` are wrapper
 options. Every other argument is passed unchanged to UHARC.
 
+## Recursive input
+
+UHARC uses Windows-style wildcards. To let UHARC, rather than zsh, interpret a
+recursive `*.*` input pattern, quote it:
+
+```sh
+uharc a -r+ archive.uha 'directory/*.*'
+```
+
+Without quotes, zsh expands the pattern before `uharc` starts; it cannot then
+discover or recurse into the matching directories itself.
+
 ## Building and testing
 
 Maintainers need Xcode Command Line Tools plus `cmake`, `ninja`, and `python`

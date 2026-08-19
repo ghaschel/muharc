@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Make Wibo's exact Windows `*.*` directory wildcard include dotless entries,
+  so UHARC `-r+` recursively archives their contents when passed a quoted
+  wildcard pattern.
+
 ## 0.1.7
 
 - Run the Homebrew archive smoke test from its temporary directory so UHARC

@@ -34,6 +34,7 @@ This is the behavior that makes macOS filenames with spaces, accents, CJK charac
 | Area | Added or changed behavior | Guardrails |
 | --- | --- | --- |
 | File API mode | Implements `AreFileApisANSI`, `SetFileApisToANSI`, and `SetFileApisToOEM` with the fixed UTF-8 behavior. | No mutable legacy-code-page state is emulated. |
+| File enumeration | Treats the exact Win32 legacy wildcard `*.*` as every directory entry, including dotless names. | Other wildcard patterns retain Wibo's existing case-insensitive matching. The shell must pass the pattern literally, for example `'directory/*.*'` in zsh. |
 | Process priority | Implements `SetPriorityClass` as a successful no-op for the current process and a nonzero class. | Other handles or a zero class fail with `ERROR_INVALID_PARAMETER`. |
 | Narrow string conversion | Replaces byte-cast conversion with UTF-8/UTF-16 conversion. | Only code pages `0`, `1`, and `65001` are accepted. |
 | NLS code pages | Reports UTF-8 ACP/OEMCP and UTF-8 code-page metadata. | Unsupported code pages fail with `ERROR_INVALID_PARAMETER`. |
@@ -56,6 +57,7 @@ The local fixture, `test/test_formatmessage.c`, verifies reordered `%2` then `%1
 | Wrapper reaches the packaged runtime correctly | `tests/wrapper_test.sh` | Argument forwarding, metadata, and Homebrew symlink resolution. |
 | Relative runtime locations work | `tests/uharc_integration_path_test.sh` | The integration suite accepts a relative `MUHARC_RUNTIME_DIR`. |
 | Unicode archive round trip | `tests/uharc_integration_test.sh` | UHARC creates, lists, tests, extracts, and byte-compares space, accented, CJK, and emoji fixtures. |
+| Recursive wildcard round trip | `tests/uharc_integration_test.sh` | A quoted `input/*.*` with `-r+` includes and extracts files from dotless nested directories. |
 | Release automation preserves the compatibility gates | `tests/release_workflow_test.sh` | Rosetta installation, x86_64 runtime execution, local-tap audit/install, and relative-path smoke behavior remain required. |
 | Apple Silicon delivery path | `.github/workflows/release.yml` `rosetta-smoke` job | The release archive runs under Rosetta on a macOS ARM runner. |
 
