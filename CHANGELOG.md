@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.8
 
 - Make Wibo's exact Windows `*.*` directory wildcard include dotless entries,
   so UHARC `-r+` recursively archives their contents when passed a quoted

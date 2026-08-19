@@ -1,7 +1,7 @@
 # Project State
 
 **Last updated:** 2026-08-19
-**Current work:** No active feature; recursive `*.*` wildcard compatibility is verified locally and awaiting release
+**Current work:** No active feature; recursive `*.*` wildcard compatibility is verified locally and queued for `0.1.8`
 
 ## Recent decisions
 

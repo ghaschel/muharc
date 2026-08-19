@@ -34,7 +34,7 @@ Maintainers need Xcode Command Line Tools plus `cmake`, `ninja`, and `python`
 brew install cmake ninja python
 make runtime
 make test
-make dist VERSION=0.1.0
+make dist VERSION=0.1.8
 ```
 
 The Wibo source is fetched at the exact revision in `sources/wibo.lock`; its
@@ -44,7 +44,7 @@ accents, CJK, and emoji.
 
 ## Maintainer specifications
 
-The shipped 0.1.7 behavior is captured in durable feature specifications:
+The shipped 0.1.8 behavior is captured in durable feature specifications:
 
 - [CLI wrapper](.spec/features/cli-wrapper/spec.md)
 - [Homebrew distribution](.spec/features/homebrew-distribution/spec.md)

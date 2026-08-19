@@ -1,6 +1,6 @@
 # Wibo UHARC Compatibility Specification
 
-**Release:** 0.1.7
+**Release:** 0.1.8
 **Status:** Shipped and verified
 
 ## Problem statement
