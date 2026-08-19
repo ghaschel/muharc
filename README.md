@@ -30,6 +30,20 @@ UHARC-specific patch is checked in at `patches/wibo-uharc.patch`. The release
 gate archives, lists, tests, and extracts UTF-8 paths containing spaces,
 accents, CJK, and emoji.
 
+## Maintainer specifications
+
+The shipped 0.1.7 behavior is captured in durable feature specifications:
+
+- [CLI wrapper](.spec/features/cli-wrapper/spec.md)
+- [Homebrew distribution](.spec/features/homebrew-distribution/spec.md)
+- [Wibo UHARC compatibility](.spec/features/wibo-uharc-compatibility/spec.md)
+- [Project decisions and deferred work](.spec/STATE.md)
+
+The [Wibo compatibility patch guide](docs/wibo-uharc-compatibility.md)
+documents the pinned source, UTF-8 model, patched API surface, upstream
+`FormatMessageA` provenance, regression coverage, and rules for future patch
+changes.
+
 ## License
 
 The wrapper code is MIT licensed. UHARC is separately proprietary freeware for
