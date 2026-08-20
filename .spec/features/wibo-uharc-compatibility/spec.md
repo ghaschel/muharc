@@ -1,7 +1,7 @@
 # Wibo UHARC Compatibility Specification
 
-**Release:** 0.1.8
-**Status:** Shipped and verified
+**Release:** Next patch release
+**Status:** Console-input change verified locally; pending release
 
 ## Problem statement
 
@@ -65,6 +65,21 @@ matching nested file reaches the archive.
 
 **Independent test:** `tests/uharc_integration_test.sh` constructs dotless nested directories, performs the quoted recursive wildcard round trip, and compares every extracted file.
 
+### P1: Confirm an archive overwrite from console input
+
+**User story:** As a UHARC user, I want a bare `Y` at an overwrite prompt to
+start compression so that I can confirm an existing archive without passing
+`-y+` or pressing Return.
+
+**Acceptance criteria:**
+
+1. WHEN UHARC calls `PeekConsoleInputA` on a valid console input handle THEN the runtime SHALL report one buffered key event when a byte is available without consuming it from UHARC's view.
+2. WHEN UHARC calls `ReadConsoleInputA` for that event THEN the runtime SHALL return a `KEY_EVENT` containing that byte and consume it.
+3. WHEN the input handle is a TTY THEN the runtime SHALL temporarily disable canonical input so `Y` is available without a newline, then restore its original terminal mode after the read and before normal Wibo process exit.
+4. WHEN an existing `.uha` archive is replaced through a real pseudo-terminal that writes only `Y` THEN UHARC SHALL complete and extraction SHALL contain the replacement content.
+
+**Independent test:** `tests/uharc_overwrite_prompt_test.sh` creates an archive, changes the source file, writes bare `Y` through a pseudo-terminal, tests and extracts the archive, and checks the terminal's local-mode flags.
+
 ### P1: Supply the minimal API surface UHARC exercises
 
 **User story:** As a maintainer, I want each compatibility shim to have defined success and failure behavior so that additional APIs do not become untracked emulation scope.
@@ -83,6 +98,8 @@ matching nested file reaches the archive.
 - WHEN a destination buffer is too small for `FormatMessageA` or character conversion THEN the shim SHALL fail without writing a truncated success result.
 - WHEN `FormatMessageA` is called with flags other than the implemented source-string path THEN its pre-existing Wibo behavior remains outside this patch's guarantee.
 - WHEN a UTF-16 sequence has an unpaired surrogate or UTF-8 input is malformed THEN conversion SHALL use U+FFFD rather than preserving invalid code units.
+- WHEN `ReadConsoleInputA` receives a nonzero length with a null output buffer THEN it SHALL fail with `ERROR_INVALID_PARAMETER`.
+- WHEN a console input handle is invalid THEN `PeekConsoleInputA` and `ReadConsoleInputA` SHALL fail with `ERROR_INVALID_HANDLE`.
 
 ## Requirement traceability
 
@@ -96,10 +113,12 @@ matching nested file reaches the archive.
 | WIBO-06 | Preserve Unicode names and contents through a UHARC round trip | `tests/uharc_integration_test.sh` | Verified |
 | WIBO-07 | Keep `FormatMessageA` ABI handling covered by a fixture | `patches/wibo-uharc.patch`, Wibo fixture tests | Implemented |
 | WIBO-08 | Match Win32 `*.*` for recursive discovery of dotless directories | `patches/wibo-uharc.patch`, `tests/uharc_integration_test.sh` | Verified |
+| WIBO-09 | Accept a bare `Y` from UHARC's overwrite prompt while restoring TTY state | `patches/wibo-uharc.patch`, `tests/uharc_overwrite_prompt_test.sh` | Verified locally |
 
 ## Success criteria
 
 - [x] `make runtime` produces a patched x86_64 Wibo executable from a clean clone.
 - [x] `make test` archives, lists, tests, extracts, and byte-compares every Unicode fixture.
 - [x] `make test` includes a quoted `*.*` recursive round trip through dotless directories.
+- [x] `make test` accepts bare `Y` for an existing archive overwrite and restores pseudo-terminal flags.
 - [x] The release workflow runs the same archive suite through Rosetta.

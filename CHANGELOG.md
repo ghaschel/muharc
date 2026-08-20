@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Make UHARC's interactive overwrite prompt accept a bare `Y`, without a
+  trailing Return, through Wibo's console-input compatibility layer.
+
 ## 0.1.8
 
 - Make Wibo's exact Windows `*.*` directory wildcard include dotless entries,
