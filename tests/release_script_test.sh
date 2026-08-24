@@ -22,7 +22,8 @@ prepare_repo() {
   git -C "$task_repo" config user.name 'muharc test'
   git -C "$task_repo" config user.email 'muharc-test@example.invalid'
 
-  if [ -f "$project_root/scripts/release.sh" ]; then
+  if [ -f "$project_root/scripts/release.sh" ] &&
+    ! git -C "$task_repo" ls-files --error-unmatch scripts/release.sh >/dev/null 2>&1; then
     cp "$project_root/scripts/release.sh" "$task_repo/scripts/release.sh"
     chmod +x "$task_repo/scripts/release.sh"
     git -C "$task_repo" add scripts/release.sh
