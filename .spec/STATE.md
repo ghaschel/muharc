@@ -1,7 +1,7 @@
 # Project State
 
-**Last updated:** 2026-08-20
-**Current work:** No active feature; UHARC overwrite-confirmation compatibility is verified locally and ready for the next patch release.
+**Last updated:** 2026-08-24
+**Current work:** The guarded release helper is implemented and verified locally; merge it to `main`, then use it to publish the overwrite-confirmation fix as the next patch release.
 
 ## Recent decisions
 
@@ -64,6 +64,26 @@
 **Trade-off:** This is intentionally limited to UHARC's one-character confirmation path, not a complete Win32 console-event or keyboard-layout implementation.
 
 **Impact:** A bare `Y` confirms archive replacement; terminal local-mode flags are restored after the read and on normal Wibo exit.
+
+### AD-007: Keep release publication local, explicit, and tag-driven (2026-08-24)
+
+**Decision:** Provide `scripts/release.sh VERSION` for maintainers to run from a
+clean, up-to-date `main`. It runs the complete test gate, asks before mutation,
+then commits release metadata, creates `vVERSION`, and atomically pushes both
+`main` and the tag.
+
+**Reason:** The existing tag workflow already creates the archive, validates a
+staged Homebrew formula, and publishes only after those gates. A local helper
+removes error-prone manual version/tag coordination without duplicating that
+release system.
+
+**Trade-off:** The script deliberately requires an explicit version and an
+interactive confirmation; it does not select versions, bypass tests, or repair
+a failed remote push automatically.
+
+**Impact:** After merging a releasable change, run
+`./scripts/release.sh N.N.N`; GitHub Actions receives the tag only when the
+matching `main` commit is pushed successfully.
 
 ## Active blockers
 

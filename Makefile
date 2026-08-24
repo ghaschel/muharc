@@ -15,6 +15,7 @@ runtime:
 test: runtime
 	./tests/wrapper_test.sh
 	./tests/release_workflow_test.sh
+	./tests/release_script_test.sh
 	./tests/uharc_integration_test.sh
 	./tests/uharc_integration_path_test.sh
 	./tests/uharc_overwrite_prompt_test.sh
