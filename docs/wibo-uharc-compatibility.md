@@ -39,6 +39,7 @@ This is the behavior that makes macOS filenames with spaces, accents, CJK charac
 | Narrow string conversion | Replaces byte-cast conversion with UTF-8/UTF-16 conversion. | Only code pages `0`, `1`, and `65001` are accepted. |
 | NLS code pages | Reports UTF-8 ACP/OEMCP and UTF-8 code-page metadata. | Unsupported code pages fail with `ERROR_INVALID_PARAMETER`. |
 | Console output | Adds `WriteConsoleA` for stdout/stderr and `SetConsoleTitleA` as a valid no-op title update. | Invalid console handles fail; null title input fails. |
+| Console input | Implements `PeekConsoleInputA` and `ReadConsoleInputA` for one buffered `KEY_EVENT` byte. TTY input temporarily disables canonical mode, so UHARC can accept a single `Y` without Return. | Invalid handles fail with `ERROR_INVALID_HANDLE`; a null read buffer with a nonzero length fails with `ERROR_INVALID_PARAMETER`. The original terminal mode is restored after the read and again before Wibo's normal process exit. This is not a general keyboard-event implementation. |
 | User32 helpers | Adds `CharToOemA` and ASCII-only `CharUpperA`. | `CharToOemA` rejects null pointers; `CharUpperA` leaves non-ASCII case behavior outside the promise. |
 | `FormatMessageA` | Enables the declaration and implements `FORMAT_MESSAGE_FROM_STRING` with `%1`–`%9` ANSI string inserts. | Other `FormatMessageA` flag combinations are not newly guaranteed; a missing argument or insufficient buffer fails. |
 | Trampoline generation | Treats C array pointees as opaque in generated helper prototypes. | This preserves the outer pointer ABI without depending on the host spelling of `va_list`. |
@@ -58,6 +59,7 @@ The local fixture, `test/test_formatmessage.c`, verifies reordered `%2` then `%1
 | Relative runtime locations work | `tests/uharc_integration_path_test.sh` | The integration suite accepts a relative `MUHARC_RUNTIME_DIR`. |
 | Unicode archive round trip | `tests/uharc_integration_test.sh` | UHARC creates, lists, tests, extracts, and byte-compares space, accented, CJK, and emoji fixtures. |
 | Recursive wildcard round trip | `tests/uharc_integration_test.sh` | A quoted `input/*.*` with `-r+` includes and extracts files from dotless nested directories. |
+| Interactive overwrite confirmation | `tests/uharc_overwrite_prompt_test.sh` | A real pseudo-terminal sends only `Y` to an existing archive's prompt, verifies the replacement archive, and checks the TTY local-mode flags are restored. |
 | Release automation preserves the compatibility gates | `tests/release_workflow_test.sh` | Rosetta installation, x86_64 runtime execution, local-tap audit/install, and relative-path smoke behavior remain required. |
 | Apple Silicon delivery path | `.github/workflows/release.yml` `rosetta-smoke` job | The release archive runs under Rosetta on a macOS ARM runner. |
 

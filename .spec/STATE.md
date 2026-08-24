@@ -1,7 +1,7 @@
 # Project State
 
-**Last updated:** 2026-08-19
-**Current work:** No active feature; recursive `*.*` wildcard compatibility is verified locally and queued for `0.1.8`
+**Last updated:** 2026-08-20
+**Current work:** No active feature; UHARC overwrite-confirmation compatibility is verified locally and ready for the next patch release.
 
 ## Recent decisions
 
@@ -55,6 +55,16 @@
 
 **Impact:** Release jobs serialize tap and GitHub-release mutations.
 
+### AD-006: Model UHARC confirmation as a one-character console event (2026-08-20)
+
+**Decision:** Buffer one input byte in `PeekConsoleInputA`, then return it from `ReadConsoleInputA` as a `KEY_EVENT`; use noncanonical TTY input only while that event is pending.
+
+**Reason:** UHARC polls `PeekConsoleInputA` before it reads. The pinned Wibo revision always returned zero events, so its overwrite prompt could never consume `Y`.
+
+**Trade-off:** This is intentionally limited to UHARC's one-character confirmation path, not a complete Win32 console-event or keyboard-layout implementation.
+
+**Impact:** A bare `Y` confirms archive replacement; terminal local-mode flags are restored after the read and on normal Wibo exit.
+
 ## Active blockers
 
 None.
@@ -104,6 +114,16 @@ pattern.
 
 **Prevents:** Recursive archives silently omitting files stored under dotless
 directories.
+
+### L-005: UHARC polls console events instead of reading line-buffered stdin (2026-08-20)
+
+**Context:** An existing archive prompts for `y/n` confirmation.
+
+**Problem:** The pinned `PeekConsoleInputA` and `ReadConsoleInputA` shims always returned zero events, so even `Y` followed by Return did not progress.
+
+**Solution:** Use `poll(2)` to detect an available byte, buffer it for the guest event pair, and temporarily clear `ICANON` on TTY input.
+
+**Prevents:** Interactive archive overwrite prompts from hanging despite visible user input.
 
 ## Deferred ideas
 

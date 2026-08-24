@@ -65,10 +65,26 @@ index 0e1d443..5767c50 100644
  DWORD WINAPI GetShortPathNameA(LPCSTR lpszLongPath, LPSTR lpszShortPath, DWORD cchBuffer);
  DWORD WINAPI GetShortPathNameW(LPCWSTR lpszLongPath, LPWSTR lpszShortPath, DWORD cchBuffer);
 diff --git a/dll/kernel32/processthreadsapi.cpp b/dll/kernel32/processthreadsapi.cpp
-index 46e4a8d..f5b2713 100644
+index 46e4a8d..2f07b90 100644
 --- a/dll/kernel32/processthreadsapi.cpp
 +++ b/dll/kernel32/processthreadsapi.cpp
-@@ -577,6 +577,16 @@ DWORD WINAPI GetPriorityClass(HANDLE hProcess) {
+@@ -14,6 +14,7 @@
+ #include "timeutil.h"
+ #include "tls.h"
+ #include "types.h"
++#include "wincon.h"
+ 
+ #include <cerrno>
+ #include <csignal>
+@@ -299,6 +300,7 @@ DWORD_PTR WINAPI SetThreadAffinityMask(HANDLE hThread, DWORD_PTR dwThreadAffinit
+ 
+ [[noreturn]] void exitInternal(DWORD exitCode) {
+ 	DEBUG_LOG("exitInternal(%u)\n", exitCode);
++	restoreConsoleInputMode();
+ 	wibo::handles().clear();
+ 	_exit(static_cast<int>(exitCode));
+ }
+@@ -577,6 +579,16 @@ DWORD WINAPI GetPriorityClass(HANDLE hProcess) {
  	return NORMAL_PRIORITY_CLASS;
  }
  
@@ -272,9 +288,102 @@ index 62e6ba6..f0df941 100644
  PVOID WINAPI DecodePointer(PVOID Ptr);
  BOOL WINAPI SetDllDirectoryA(LPCSTR lpPathName);
 diff --git a/dll/kernel32/wincon.cpp b/dll/kernel32/wincon.cpp
-index 8a26a6a..93e0828 100644
+index 8a26a6a..bbf7576 100644
 --- a/dll/kernel32/wincon.cpp
 +++ b/dll/kernel32/wincon.cpp
+@@ -6,6 +6,92 @@
+ #include "handles.h"
+ #include "strutil.h"
+ 
++#include <cerrno>
++#include <cstring>
++#include <deque>
++#include <mutex>
++#include <poll.h>
++#include <termios.h>
++#include <unistd.h>
++
++namespace {
++
++struct ConsoleInputState {
++	std::mutex mutex;
++	std::deque<char> pendingCharacters;
++	int terminalFd = -1;
++	bool terminalModeChanged = false;
++	termios originalTerminalMode{};
++
++	bool enableSingleCharacterInput(int fd) {
++		if (!isatty(fd)) {
++			return true;
++		}
++		if (terminalModeChanged && terminalFd == fd) {
++			return true;
++		}
++		restoreTerminalMode();
++		if (tcgetattr(fd, &originalTerminalMode) != 0) {
++			return false;
++		}
++		termios singleCharacterMode = originalTerminalMode;
++		singleCharacterMode.c_lflag &= static_cast<tcflag_t>(~ICANON);
++		singleCharacterMode.c_cc[VMIN] = 1;
++		singleCharacterMode.c_cc[VTIME] = 0;
++		if (tcsetattr(fd, TCSANOW, &singleCharacterMode) != 0) {
++			return false;
++		}
++		terminalFd = fd;
++		terminalModeChanged = true;
++		return true;
++	}
++
++	void restoreTerminalMode() {
++		if (terminalModeChanged) {
++			(void)tcsetattr(terminalFd, TCSANOW, &originalTerminalMode);
++			terminalFd = -1;
++			terminalModeChanged = false;
++		}
++	}
++};
++
++ConsoleInputState g_consoleInput;
++
++void fillKeyEvent(INPUT_RECORD &record, char character) {
++	std::memset(&record, 0, sizeof(record));
++	record.EventType = KEY_EVENT;
++	record.Event.KeyEvent.bKeyDown = TRUE;
++	record.Event.KeyEvent.wRepeatCount = 1;
++	record.Event.KeyEvent.uChar.AsciiChar = character;
++}
++
++bool readConsoleCharacter(int fd, char &character) {
++	while (true) {
++		ssize_t count = ::read(fd, &character, 1);
++		if (count == 1) {
++			return true;
++		}
++		if (count == 0) {
++			errno = EPIPE;
++			return false;
++		}
++		if (errno != EINTR) {
++			return false;
++		}
++	}
++}
++
++bool validateConsoleInput(HANDLE handle, Pin<FileObject> &file) {
++	file = wibo::handles().getAs<FileObject>(handle);
++	if (!file || !file->valid()) {
++		kernel32::setLastError(ERROR_INVALID_HANDLE);
++		return false;
++	}
++	return true;
++}
++
++} // namespace
++
+ namespace kernel32 {
+
+ BOOL WINAPI GetConsoleMode(HANDLE hConsoleHandle, LPDWORD lpMode) {
 @@ -93,6 +93,35 @@ BOOL WINAPI WriteConsoleW(HANDLE hConsoleOutput, LPCWSTR lpBuffer, DWORD nNumber
  	return FALSE;
  }
@@ -311,7 +420,7 @@ index 8a26a6a..93e0828 100644
  DWORD WINAPI GetConsoleTitleA(LPSTR lpConsoleTitle, DWORD nSize) {
  	HOST_CONTEXT_GUARD();
  	DEBUG_LOG("GetConsoleTitleA(%p, %u)\n", lpConsoleTitle, nSize);
-@@ -113,6 +142,16 @@ DWORD WINAPI GetConsoleTitleW(LPWSTR lpConsoleTitle, DWORD nSize) {
+@@ -113,32 +228,113 @@ DWORD WINAPI GetConsoleTitleW(LPWSTR lpConsoleTitle, DWORD nSize) {
  	return 0;
  }
  
@@ -328,11 +437,148 @@ index 8a26a6a..93e0828 100644
  BOOL WINAPI PeekConsoleInputA(HANDLE hConsoleInput, INPUT_RECORD *lpBuffer, DWORD nLength,
  							  LPDWORD lpNumberOfEventsRead) {
  	HOST_CONTEXT_GUARD();
+-	DEBUG_LOG("STUB: PeekConsoleInputA(%p, %p, %u)\n", hConsoleInput, lpBuffer, nLength);
+-	(void)hConsoleInput;
+-	(void)lpBuffer;
+-	(void)nLength;
+ 	if (lpNumberOfEventsRead) {
+ 		*lpNumberOfEventsRead = 0;
+ 	}
++	DEBUG_LOG("PeekConsoleInputA(%p, %p, %u)\n", hConsoleInput, lpBuffer, nLength);
++	Pin<FileObject> file;
++	if (!validateConsoleInput(hConsoleInput, file)) {
++		return FALSE;
++	}
++
++	std::lock_guard lock(g_consoleInput.mutex);
++	if (!g_consoleInput.enableSingleCharacterInput(file->fd)) {
++		setLastError(wibo::winErrorFromErrno(errno));
++		return FALSE;
++	}
++	if (g_consoleInput.pendingCharacters.empty()) {
++		pollfd descriptor{file->fd, POLLIN, 0};
++		int result;
++		do {
++			result = poll(&descriptor, 1, 0);
++		} while (result < 0 && errno == EINTR);
++		if (result < 0) {
++			setLastError(wibo::winErrorFromErrno(errno));
++			g_consoleInput.restoreTerminalMode();
++			return FALSE;
++		}
++		if (result == 0) {
++			return TRUE;
++		}
++		if ((descriptor.revents & (POLLIN | POLLHUP)) == 0) {
++			setLastError(ERROR_INVALID_HANDLE);
++			g_consoleInput.restoreTerminalMode();
++			return FALSE;
++		}
++		char character = 0;
++		if (!readConsoleCharacter(file->fd, character)) {
++			setLastError(wibo::winErrorFromErrno(errno));
++			g_consoleInput.restoreTerminalMode();
++			return FALSE;
++		}
++		g_consoleInput.pendingCharacters.push_back(character);
++	}
++	if (nLength > 0 && lpBuffer) {
++		fillKeyEvent(*lpBuffer, g_consoleInput.pendingCharacters.front());
++	}
++	if (lpNumberOfEventsRead) {
++		*lpNumberOfEventsRead = 1;
++	}
+ 	return TRUE;
+ }
+ 
+ BOOL WINAPI ReadConsoleInputA(HANDLE hConsoleInput, INPUT_RECORD *lpBuffer, DWORD nLength,
+ 							  LPDWORD lpNumberOfEventsRead) {
+ 	HOST_CONTEXT_GUARD();
+-	DEBUG_LOG("STUB: ReadConsoleInputA(%p, %p, %u)\n", hConsoleInput, lpBuffer, nLength);
+-	(void)hConsoleInput;
+-	(void)lpBuffer;
+-	(void)nLength;
++	DEBUG_LOG("ReadConsoleInputA(%p, %p, %u)\n", hConsoleInput, lpBuffer, nLength);
+ 	if (lpNumberOfEventsRead) {
+ 		*lpNumberOfEventsRead = 0;
+ 	}
++	if (nLength == 0) {
++		return TRUE;
++	}
++	if (!lpBuffer) {
++		setLastError(ERROR_INVALID_PARAMETER);
++		return FALSE;
++	}
++	Pin<FileObject> file;
++	if (!validateConsoleInput(hConsoleInput, file)) {
++		return FALSE;
++	}
++
++	std::lock_guard lock(g_consoleInput.mutex);
++	if (!g_consoleInput.enableSingleCharacterInput(file->fd)) {
++		setLastError(wibo::winErrorFromErrno(errno));
++		return FALSE;
++	}
++	char character = 0;
++	if (!g_consoleInput.pendingCharacters.empty()) {
++		character = g_consoleInput.pendingCharacters.front();
++		g_consoleInput.pendingCharacters.pop_front();
++	} else if (!readConsoleCharacter(file->fd, character)) {
++		setLastError(wibo::winErrorFromErrno(errno));
++		g_consoleInput.restoreTerminalMode();
++		return FALSE;
++	}
++	fillKeyEvent(*lpBuffer, character);
++	*lpNumberOfEventsRead = 1;
++	g_consoleInput.restoreTerminalMode();
+ 	return TRUE;
+ }
+ 
++void restoreConsoleInputMode() {
++	std::lock_guard lock(g_consoleInput.mutex);
++	g_consoleInput.restoreTerminalMode();
++}
++
+ BOOL WINAPI VerifyConsoleIoHandle(HANDLE handle) {
+ 	HOST_CONTEXT_GUARD();
+ 	DEBUG_LOG("STUB: VerifyConsoleIoHandle(%p)\n", handle);
 diff --git a/dll/kernel32/wincon.h b/dll/kernel32/wincon.h
-index a34b8ac..53a1c20 100644
+index a34b8ac..987f9b8 100644
 --- a/dll/kernel32/wincon.h
 +++ b/dll/kernel32/wincon.h
-@@ -36,8 +36,11 @@ BOOL WINAPI SetConsoleCtrlHandler(PHANDLER_ROUTINE HandlerRoutine, BOOL Add);
+@@ -22,7 +22,30 @@ struct CONSOLE_SCREEN_BUFFER_INFO {
+ 	COORD dwMaximumWindowSize;
+ };
+ 
+-struct INPUT_RECORD;
++constexpr WORD KEY_EVENT = 0x0001;
++
++struct KEY_EVENT_RECORD {
++	BOOL bKeyDown;
++	WORD wRepeatCount;
++	WORD wVirtualKeyCode;
++	WORD wVirtualScanCode;
++	union {
++		WCHAR UnicodeChar;
++		CHAR AsciiChar;
++	} uChar;
++	DWORD dwControlKeyState;
++};
++
++struct INPUT_RECORD {
++	WORD EventType;
++	union {
++		KEY_EVENT_RECORD KeyEvent;
++		BYTE Reserved[sizeof(KEY_EVENT_RECORD)];
++	} Event;
++};
++
++static_assert(sizeof(KEY_EVENT_RECORD) == 16);
++static_assert(sizeof(INPUT_RECORD) == 20);
+ 
+ typedef BOOL(_CC_STDCALL *PHANDLER_ROUTINE)(DWORD CtrlType);
+ 
+@@ -36,12 +59,16 @@ BOOL WINAPI SetConsoleCtrlHandler(PHANDLER_ROUTINE HandlerRoutine, BOOL Add);
  BOOL WINAPI GetConsoleScreenBufferInfo(HANDLE hConsoleOutput, CONSOLE_SCREEN_BUFFER_INFO *lpConsoleScreenBufferInfo);
  BOOL WINAPI WriteConsoleW(HANDLE hConsoleOutput, LPCWSTR lpBuffer, DWORD nNumberOfCharsToWrite,
  						  LPDWORD lpNumberOfCharsWritten, LPVOID lpReserved);
@@ -344,6 +590,11 @@ index a34b8ac..53a1c20 100644
  BOOL WINAPI PeekConsoleInputA(HANDLE hConsoleInput, INPUT_RECORD *lpBuffer, DWORD nLength,
  							  LPDWORD lpNumberOfEventsRead);
  BOOL WINAPI ReadConsoleInputA(HANDLE hConsoleInput, INPUT_RECORD *lpBuffer, DWORD nLength,
+ 							  LPDWORD lpNumberOfEventsRead);
+ BOOL WINAPI VerifyConsoleIoHandle(HANDLE handle);
++void restoreConsoleInputMode();
+ 
+ } // namespace kernel32
 diff --git a/dll/kernel32/winnls.cpp b/dll/kernel32/winnls.cpp
 index 6d684c0..34bb04e 100644
 --- a/dll/kernel32/winnls.cpp
