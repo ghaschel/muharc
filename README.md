@@ -42,12 +42,30 @@ UHARC-specific patch is checked in at `patches/wibo-uharc.patch`. The release
 gate archives, lists, tests, and extracts UTF-8 paths containing spaces,
 accents, CJK, and emoji.
 
+## Publishing a release
+
+After a change has merged to `main`, run:
+
+```sh
+git switch main
+git pull --ff-only
+./scripts/release.sh 0.1.9
+```
+
+The helper requires a clean, up-to-date `main`, runs `make test`, and asks for
+confirmation before it updates the version and changelog, creates the release
+commit and tag, and atomically pushes both. A successful push triggers the
+existing GitHub Actions workflow, which builds the archive and tests and
+updates the Homebrew tap. Any response other than `y` or `Y` cancels before
+tracked release state changes.
+
 ## Maintainer specifications
 
 The shipped 0.1.8 behavior is captured in durable feature specifications:
 
 - [CLI wrapper](.spec/features/cli-wrapper/spec.md)
 - [Homebrew distribution](.spec/features/homebrew-distribution/spec.md)
+- [Release helper](.spec/features/release-helper/spec.md)
 - [Wibo UHARC compatibility](.spec/features/wibo-uharc-compatibility/spec.md)
 - [Project decisions and deferred work](.spec/STATE.md)
 
