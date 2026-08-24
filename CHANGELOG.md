@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.9
 
 - Make UHARC's interactive overwrite prompt accept a bare `Y`, without a
   trailing Return, through Wibo's console-input compatibility layer.
